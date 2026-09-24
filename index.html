@@ -152,6 +152,9 @@
   .perf-table th,.perf-table td{white-space:nowrap;}
   .breach-num{color:var(--red);font-weight:700;}
   .stat-card.breach .num{color:var(--red);}
+  .stat-card .sub{font-size:11px;color:var(--text-dim);margin-top:4px;}
+  .stat-card.lvl-l1 .num{color:var(--red);}
+  .stat-card.lvl-l2 .num{color:var(--gold);}
   .rank-badge{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--surface-2);font-size:11px;font-weight:700;color:var(--text-dim);}
   .rank-badge.r1{background:var(--gold-soft);color:var(--gold);}
   .rank-badge.r2{background:#C0C0C022;color:#C6C6C6;}
@@ -383,6 +386,7 @@
   </div>
 
   <div id="panel-flagged" style="display:none;">
+    <div class="stat-grid" id="flaggedLevelCards"></div>
     <div class="panel">
       <h2>Flagged issues</h2>
       <div class="table-scroll">
@@ -760,7 +764,24 @@
 
   // ---------- Flagged tab ----------
   const SEVERITY_RANK = { 'Very critical': 3, 'Critical': 2, 'Need attention': 1 };
+  // ---- Escalation-ladder counts shown above the Flagged list ----
+  // Counts every still-unresolved issue by the level it currently sits at.
+  // L3 = hub (not flagged yet), L2 = Need attention, L1 = Critical / Very critical.
+  function renderLevelCards(issues){
+    const c = { L1:0, L2:0, L3:0 };
+    issues.forEach(i=>{
+      if(i.status === 'Resolved') return;
+      const lvl = c[i.escalation_level] !== undefined ? i.escalation_level : 'L3';
+      c[lvl] += 1;
+    });
+    $('flaggedLevelCards').innerHTML = `
+      <div class="stat-card lvl-l1"><div class="num">${c.L1}</div><div class="lbl">L1 count</div><div class="sub">Ops Manager · Critical / Very critical</div></div>
+      <div class="stat-card lvl-l2"><div class="num">${c.L2}</div><div class="lbl">L2 count</div><div class="sub">Cluster / Regional · Need attention</div></div>
+      <div class="stat-card"><div class="num">${c.L3}</div><div class="lbl">L3 count</div><div class="sub">Hub · Regular</div></div>`;
+  }
+
   function renderFlagged(){
+    renderLevelCards(allIssues);
     const flagged = allIssues
       .filter(i => SEVERITY_RANK[i.response_status])
       .sort((a, b) => {
