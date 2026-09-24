@@ -675,6 +675,23 @@
     }
   }
 
+  // Renders any photo/audio attachments on an issue as small inline previews.
+  // Attachments are stored as a JSON string (see /areas/issue-escalation-
+  // system attachments column) — [{ type, filename, mimeType, dataUrl }].
+  function parseAttachments(i){
+    if (!i.attachments) return [];
+    try { return JSON.parse(i.attachments) || []; } catch { return []; }
+  }
+  function renderAttachments(i){
+    const list = parseAttachments(i);
+    if (!list.length) return '';
+    return `<div class="attach-row" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;">` +
+      list.map(a => a.type === 'photo'
+        ? `<a href="${a.dataUrl}" target="_blank" rel="noopener"><img src="${a.dataUrl}" alt="attachment" style="width:44px;height:44px;object-fit:cover;border-radius:6px;border:1px solid var(--border,#ddd);"></a>`
+        : `<audio controls src="${a.dataUrl}" style="height:30px;max-width:160px;"></audio>`
+      ).join('') + `</div>`;
+  }
+
   function renderTable(list, bodyId, emptyId){
     const body = $(bodyId);
     body.innerHTML='';
@@ -698,7 +715,7 @@
         <td>${renderFlag(i)}</td>
         <td>${escapeHtml(i.logged_by_name || i.logged_by)}</td>
         <td class="details-cell"><div class="details-text">${escapeHtml(i.remarks || '—')}</div></td>
-        <td class="details-cell"><div class="details-text">${escapeHtml(i.details)}</div></td>
+        <td class="details-cell"><div class="details-text">${escapeHtml(i.details)}</div>${renderAttachments(i)}</td>
         <td>${canClose ? `<button class="ghost" data-role="close-btn">Close</button>` : (i.closed_by ? '✓ Closed' : '—')}</td>
       `;
       tr.querySelector('.details-text').addEventListener('click', (e)=>{
