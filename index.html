@@ -229,6 +229,10 @@
   .modal-box p{margin:0 0 18px;color:var(--text-dim);font-size:14px;}
   .modal-actions{display:flex;gap:10px;}
   .modal-actions button{flex:1;}
+  .modal-actions button:disabled{opacity:.5;cursor:not-allowed;}
+  .modal-box button.link{background:none;border:none;color:var(--text-dim);font-family:'Inter',sans-serif;font-weight:600;font-size:12.5px;cursor:pointer;padding:6px 0;margin-top:10px;}
+  .modal-box button.link:hover{color:var(--text);}
+  .re-tag{display:block;margin-top:5px;font-size:10.5px;font-weight:700;color:var(--gold);white-space:nowrap;}
 </style>
 </head>
 <body>
@@ -289,13 +293,24 @@
 
   <div id="closeModalOverlay" class="modal-overlay" style="display:none;">
     <div class="modal-box">
-      <h3>Close this issue?</h3>
-      <p>Did you confirm the update with the merchant?</p>
-      <div class="modal-actions">
-        <button class="ghost" id="closeModalNo">No</button>
-        <button class="primary" id="closeModalYes">Yes</button>
+      <div id="actionStep1">
+        <h3>Action</h3>
+        <p id="actionHint">Re-escalate if the issue isn't actually fixed, or close it if it is.</p>
+        <div class="modal-actions">
+          <button class="ghost" id="actionReescalate">Re-escalate</button>
+          <button class="primary" id="actionClose">Close</button>
+        </div>
       </div>
-      <button class="link" id="closeModalCancel" style="margin-top:10px;">Cancel</button>
+      <div id="actionStep2" style="display:none;">
+        <h3>Close this issue?</h3>
+        <p>Did you confirm the update with the merchant?</p>
+        <div class="modal-actions">
+          <button class="ghost" id="closeModalNo">No</button>
+          <button class="primary" id="closeModalYes">Yes</button>
+        </div>
+        <button class="link" id="actionBack">&larr; Back</button>
+      </div>
+      <button class="link" id="closeModalCancel" style="display:block;">Cancel</button>
       <div style="margin-top:10px;"><span class="status-msg" id="closeModalMsg"></span></div>
     </div>
   </div>
@@ -357,7 +372,7 @@
         <thead>
           <tr>
             <th>Logged</th><th>Consignment / Merchant</th><th>Channel</th><th>Zone</th>
-            <th>Hub</th><th>Category</th><th>Subcategory</th><th>Status</th><th>Flag</th><th>Logged by</th><th>Remarks</th><th>Details</th><th>Actions</th>
+            <th>Hub</th><th>Category</th><th>Subcategory</th><th>Status</th><th>Flag</th><th>Logged by</th><th>Details</th><th>Remarks</th><th>Action</th>
           </tr>
         </thead>
         <tbody id="issueTableBody"></tbody>
@@ -375,7 +390,7 @@
           <thead>
             <tr>
               <th>Logged</th><th>Consignment / Merchant</th><th>Channel</th><th>Zone</th>
-              <th>Hub</th><th>Category</th><th>Subcategory</th><th>Status</th><th>Flag</th><th>Logged by</th><th>Remarks</th><th>Details</th><th>Actions</th>
+              <th>Hub</th><th>Category</th><th>Subcategory</th><th>Status</th><th>Flag</th><th>Logged by</th><th>Details</th><th>Remarks</th><th>Action</th>
             </tr>
           </thead>
           <tbody id="flaggedTableBody"></tbody>
@@ -702,7 +717,7 @@
     $(emptyId).style.display = sorted.length ? 'none' : 'block';
     sorted.forEach(i=>{
       const tr = document.createElement('tr');
-      const canClose = i.remarks && !i.closed_by && (i.logged_by || '').toLowerCase() === (authEmail || '').toLowerCase();
+      const canAct = i.remarks && !i.closed_by && (i.logged_by || '').toLowerCase() === (authEmail || '').toLowerCase();
       tr.innerHTML = `
         <td class="mono">${fmtTime(i.ts)}</td>
         <td>${escapeHtml(i.consignment)}</td>
@@ -714,12 +729,12 @@
         </td>
         <td>${escapeHtml(i.category)}</td>
         <td>${escapeHtml(i.subcategory)}</td>
-        <td><span class="badge ${statusClass(i.status)}">${escapeHtml(i.status)}</span></td>
+        <td><span class="badge ${statusClass(i.status)}">${escapeHtml(i.status)}</span>${i.reescalation_count ? `<span class="re-tag">↻ Re-escalated${i.reescalation_count > 1 ? ' ×' + i.reescalation_count : ''}</span>` : ''}</td>
         <td>${renderFlag(i)}</td>
         <td>${escapeHtml(i.logged_by_name || i.logged_by)}</td>
-        <td class="details-cell"><div class="details-text">${escapeHtml(i.remarks || '—')}</div></td>
         <td class="details-cell"><div class="details-text">${escapeHtml(i.details)}</div>${renderAttachments(i)}</td>
-        <td>${canClose ? `<button class="ghost" data-role="close-btn">Close</button>` : (i.closed_by ? '✓ Closed' : '—')}</td>
+        <td class="details-cell"><div class="details-text">${escapeHtml(i.remarks || '—')}</div></td>
+        <td>${canAct ? `<button class="ghost" data-role="action-btn">Action</button>` : (i.closed_by ? '✓ Closed' : '—')}</td>
       `;
       tr.querySelector('.details-text').addEventListener('click', (e)=>{
         e.target.classList.toggle('expanded');
@@ -728,8 +743,8 @@
       if(i.hub){
         hubCell.querySelector('.hub-link').addEventListener('click', ()=> toggleHubContacts(hubCell, i.hub));
       }
-      if(canClose){
-        tr.querySelector('[data-role=close-btn]').addEventListener('click', ()=> openCloseModal(i.id));
+      if(canAct){
+        tr.querySelector('[data-role=action-btn]').addEventListener('click', ()=> openActionModal(i));
       }
       body.appendChild(tr);
     });
@@ -756,41 +771,80 @@
     renderTable(flagged, 'flaggedTableBody', 'flaggedEmptyState');
   }
 
-  // ---------- Close issue (with merchant-informed confirmation) ----------
-  let pendingCloseId = null;
-  function openCloseModal(id){
-    pendingCloseId = id;
-    $('closeModalMsg').textContent = '';
+  // ---------- Action popup: Re-escalate or Close ----------
+  // Step 1 = pick Re-escalate / Close. Close then goes to step 2, the existing
+  // "did you confirm with the merchant?" Yes/No, which the close endpoint requires.
+  let pendingActionIssue = null;
+  function actionStep(n){
+    $('actionStep1').style.display = n === 1 ? 'block' : 'none';
+    $('actionStep2').style.display = n === 2 ? 'block' : 'none';
+  }
+  // A KAM can re-escalate once per hub response: after re-escalating, the hub
+  // has to reply (which bumps updated_at) before it can be re-escalated again.
+  function awaitingNewResponse(i){
+    if(!i || !i.reescalated_at) return false;
+    if(!i.updated_at) return true;
+    return new Date(i.updated_at) <= new Date(i.reescalated_at);
+  }
+  function refreshActionButtons(){
+    const waiting = awaitingNewResponse(pendingActionIssue);
+    $('actionReescalate').disabled = waiting;
+    $('actionReescalate').title = waiting ? 'Already re-escalated — waiting for a new response.' : '';
+    $('actionClose').disabled = false;
+    $('closeModalYes').disabled = false;
+    $('closeModalNo').disabled = false;
+    $('actionHint').textContent = waiting
+      ? 'Already re-escalated — waiting for a new response from the hub. You can still close it.'
+      : "Re-escalate if the issue isn't actually fixed, or close it if it is.";
+  }
+  function setActionBusy(){
+    ['actionReescalate','actionClose','closeModalYes','closeModalNo'].forEach(id => { $(id).disabled = true; });
+  }
+  function openActionModal(issue){
+    pendingActionIssue = issue;
+    const msgEl = $('closeModalMsg');
+    msgEl.textContent = ''; msgEl.className = 'status-msg';
+    refreshActionButtons();
+    actionStep(1);
     $('closeModalOverlay').style.display = 'flex';
   }
   function closeModalHide(){
     $('closeModalOverlay').style.display = 'none';
-    pendingCloseId = null;
+    pendingActionIssue = null;
   }
   $('closeModalCancel').addEventListener('click', closeModalHide);
   $('closeModalOverlay').addEventListener('click', (e)=>{
     if(e.target.id === 'closeModalOverlay') closeModalHide();
   });
-  async function confirmClose(merchantInformed){
-    if(!pendingCloseId) return;
+  $('actionClose').addEventListener('click', ()=>{ $('closeModalMsg').textContent = ''; actionStep(2); });
+  $('actionBack').addEventListener('click', ()=>{ $('closeModalMsg').textContent = ''; actionStep(1); });
+
+  async function runIssueAction(path, body, busyText, failText){
+    if(!pendingActionIssue) return;
+    const id = pendingActionIssue.id;
     const msgEl = $('closeModalMsg');
-    msgEl.textContent = 'Closing…'; msgEl.className = 'status-msg';
+    msgEl.textContent = busyText; msgEl.className = 'status-msg';
+    setActionBusy();
     try{
-      const res = await authedFetch(`/api/issues/${encodeURIComponent(pendingCloseId)}/close`, {
+      const res = await authedFetch(`/api/issues/${encodeURIComponent(id)}/${path}`, {
         method: 'PATCH',
-        body: JSON.stringify({ merchantInformed })
+        body: JSON.stringify(body)
       });
-      const data = await res.json();
+      const data = await res.json().catch(()=> ({}));
       if(!res.ok){
-        msgEl.textContent = data.error || 'Could not close issue.'; msgEl.classList.add('err');
+        msgEl.textContent = data.error || failText; msgEl.classList.add('err');
+        refreshActionButtons();
         return;
       }
       closeModalHide();
       await loadAndRenderDashboard();
     }catch(err){
       msgEl.textContent = 'Could not reach the server.'; msgEl.classList.add('err');
+      refreshActionButtons();
     }
   }
+  const confirmClose = (merchantInformed) => runIssueAction('close', { merchantInformed }, 'Closing…', 'Could not close issue.');
+  $('actionReescalate').addEventListener('click', ()=> runIssueAction('re-escalate', {}, 'Re-escalating…', 'Could not re-escalate issue.'));
   $('closeModalYes').addEventListener('click', ()=> confirmClose('Yes'));
   $('closeModalNo').addEventListener('click', ()=> confirmClose('No'));
 
