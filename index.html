@@ -235,6 +235,30 @@
   .modal-actions button:disabled{opacity:.5;cursor:not-allowed;}
   .modal-box button.link{background:none;border:none;color:var(--text-dim);font-family:'Inter',sans-serif;font-weight:600;font-size:12.5px;cursor:pointer;padding:6px 0;margin-top:10px;}
   .modal-box button.link:hover{color:var(--text);}
+  .issue-row{cursor:pointer;}
+  .row-chev{display:inline-block;width:12px;margin-right:4px;color:var(--text-faint);font-size:10px;transition:transform .15s;}
+  .issue-row.issue-open .row-chev{transform:rotate(90deg);}
+  .issue-row.issue-open td{background:var(--surface-2);}
+  .history-row td{padding:0;background:var(--surface-2);}
+  .hist-panel{position:sticky;left:0;box-sizing:border-box;max-width:min(880px, calc(100vw - 80px));padding:20px 24px 24px;white-space:normal;}
+  .hist-top{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;}
+  .hist-block{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;}
+  .hist-block.hist-remark{border-color:var(--gold);}
+  .hist-label{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text-faint);margin-bottom:8px;}
+  .hist-text{font-size:14px;line-height:1.55;color:var(--text);white-space:pre-wrap;word-break:break-word;}
+  .hist-meta{font-size:11.5px;color:var(--text-faint);margin-top:8px;}
+  .hist-empty{font-size:13px;color:var(--text-faint);}
+  .hist-timeline{position:relative;margin-left:5px;padding-left:22px;border-left:2px solid var(--border);}
+  .hist-ev{position:relative;padding:0 0 16px;}
+  .hist-ev:last-child{padding-bottom:0;}
+  .hist-dot{position:absolute;left:-29px;top:3px;width:12px;height:12px;border-radius:50%;background:var(--surface);border:2px solid var(--text-faint);}
+  .hist-ev.update .hist-dot{border-color:var(--gold);}
+  .hist-ev.escalated .hist-dot{border-color:var(--red);}
+  .hist-ev.re_escalated .hist-dot{border-color:var(--red);background:var(--red);}
+  .hist-ev.closed .hist-dot{border-color:var(--green);background:var(--green);}
+  .hist-ev-title{font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .hist-ev-meta{font-size:11.5px;color:var(--text-faint);margin-top:2px;}
+  .hist-ev .hist-text{margin-top:6px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:13.5px;}
   .re-tag{display:block;margin-top:5px;font-size:10.5px;font-weight:700;color:var(--gold);white-space:nowrap;}
 </style>
 </head>
@@ -714,6 +738,101 @@
       ).join('') + `</div>`;
   }
 
+  // ---------- Expandable issue rows: full remark + details + event history ----------
+  const expandedIssueIds = new Set();
+
+  function personLabel(email, issue, name){
+    if(!email) return '—';
+    if(authEmail && email.toLowerCase() === authEmail.toLowerCase()) return 'You';
+    if(issue && (issue.logged_by || '').toLowerCase() === email.toLowerCase()) return issue.logged_by_name || email;
+    return name || email;
+  }
+
+  function flagPill(flag){
+    const cls = FLAG_CLASS[flag];
+    if(!cls) return '';
+    return `<span class="flag ${cls}">${FLAG_ICON[flag] || ''} ${escapeHtml(flag)}</span>`;
+  }
+
+  function renderHistoryEvents(events, issue){
+    if(!events.length) return `<div class="hist-empty">No history recorded for this issue yet.</div>`;
+    return `<div class="hist-timeline">` + events.map(ev=>{
+      const who = personLabel(ev.actor, issue, ev.actor_name);
+      const badge = ev.status ? `<span class="badge ${statusClass(ev.status)}">${escapeHtml(ev.status)}</span>` : '';
+      let title, meta = fmtTime(ev.ts);
+      switch(ev.type){
+        case 'logged':            title = 'Issue logged'; meta += ` · by ${escapeHtml(who)}`; break;
+        case 'merchant_notified': title = 'Merchant notified'; break;
+        case 'update':            title = 'Hub / Ops update'; meta += ` · by ${escapeHtml(who)}`; break;
+        case 'escalated':         title = `Escalated to ${escapeHtml(ev.level || '')} ${flagPill(ev.flag)}`; meta += ' · automatic (no response in time)'; break;
+        case 're_escalated':      title = 'Re-escalated by KAM'; meta += ` · by ${escapeHtml(who)}`; break;
+        case 'closed':            title = 'Closed by KAM'; meta += ` · by ${escapeHtml(who)}`; break;
+        default:                  title = escapeHtml(ev.type);
+      }
+      const noteHtml = ev.note ? `<div class="hist-text">${escapeHtml(ev.note)}</div>` : '';
+      return `<div class="hist-ev ${escapeHtml(ev.type)}">
+        <span class="hist-dot"></span>
+        <div class="hist-ev-title">${title} ${badge}</div>
+        <div class="hist-ev-meta">${meta}</div>
+        ${noteHtml}
+      </div>`;
+    }).join('') + `</div>`;
+  }
+
+  function historyPanelHtml(i){
+    const remarkBlock = i.remarks
+      ? `<div class="hist-text">${escapeHtml(i.remarks)}</div>
+         <div class="hist-meta">${escapeHtml(personLabel(i.remarks_by, i))}${i.updated_at ? ' · ' + fmtTime(i.updated_at) : ''}</div>`
+      : `<div class="hist-empty">No response from the hub yet.</div>`;
+    return `<div class="hist-panel">
+      <div class="hist-top">
+        <div class="hist-block hist-remark">
+          <div class="hist-label">Latest remark</div>
+          ${remarkBlock}
+        </div>
+        <div class="hist-block">
+          <div class="hist-label">Details</div>
+          <div class="hist-text">${escapeHtml(i.details || '—')}</div>
+          ${renderAttachments(i)}
+        </div>
+      </div>
+      <div class="hist-label" style="margin-top:20px;">History</div>
+      <div data-role="timeline"><div class="hist-empty">Loading history…</div></div>
+    </div>`;
+  }
+
+  async function loadHistoryInto(box, issue){
+    try{
+      const res = await authedFetch(`/api/issues/${encodeURIComponent(issue.id)}/history`);
+      if(!res.ok) throw new Error('bad status');
+      const data = await res.json();
+      if(box.isConnected) box.innerHTML = renderHistoryEvents(data.events || [], issue);
+    }catch(err){
+      if(box.isConnected) box.innerHTML = `<div class="hist-empty">History isn't available right now.</div>`;
+    }
+  }
+
+  function openHistoryRow(tr, issue){
+    tr.classList.add('issue-open');
+    const hr = document.createElement('tr');
+    hr.className = 'history-row';
+    hr.innerHTML = `<td colspan="${tr.children.length}">${historyPanelHtml(issue)}</td>`;
+    tr.after(hr);
+    loadHistoryInto(hr.querySelector('[data-role=timeline]'), issue);
+  }
+
+  function toggleHistoryRow(tr, issue){
+    const next = tr.nextElementSibling;
+    if(next && next.classList.contains('history-row')){
+      next.remove();
+      tr.classList.remove('issue-open');
+      expandedIssueIds.delete(issue.id);
+      return;
+    }
+    expandedIssueIds.add(issue.id);
+    openHistoryRow(tr, issue);
+  }
+
   function renderTable(list, bodyId, emptyId){
     const body = $(bodyId);
     body.innerHTML='';
@@ -723,7 +842,7 @@
       const tr = document.createElement('tr');
       const canAct = i.remarks && !i.closed_by && (i.logged_by || '').toLowerCase() === (authEmail || '').toLowerCase();
       tr.innerHTML = `
-        <td class="mono">${fmtTime(i.ts)}</td>
+        <td class="mono"><span class="row-chev">▸</span>${fmtTime(i.ts)}</td>
         <td>${escapeHtml(i.consignment)}</td>
         <td>${escapeHtml(i.channel)}</td>
         <td>${escapeHtml(i.zone)}</td>
@@ -740,9 +859,6 @@
         <td class="details-cell"><div class="details-text">${escapeHtml(i.remarks || '—')}</div></td>
         <td>${canAct ? `<button class="ghost" data-role="action-btn">Action</button>` : (i.closed_by ? '✓ Closed' : '—')}</td>
       `;
-      tr.querySelector('.details-text').addEventListener('click', (e)=>{
-        e.target.classList.toggle('expanded');
-      });
       const hubCell = tr.querySelector('.hub-cell');
       if(i.hub){
         hubCell.querySelector('.hub-link').addEventListener('click', ()=> toggleHubContacts(hubCell, i.hub));
@@ -750,7 +866,14 @@
       if(canAct){
         tr.querySelector('[data-role=action-btn]').addEventListener('click', ()=> openActionModal(i));
       }
+      tr.classList.add('issue-row');
+      tr.title = 'Click to see the full remark and history';
+      tr.addEventListener('click', (e)=>{
+        if(e.target.closest('button, a, audio, img, .hub-link, .hub-contacts')) return;
+        toggleHistoryRow(tr, i);
+      });
       body.appendChild(tr);
+      if(expandedIssueIds.has(i.id)) openHistoryRow(tr, i);
     });
   }
 
