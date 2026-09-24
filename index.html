@@ -143,12 +143,15 @@
   .stat-card .lbl{font-size:10.5px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.04em;margin-top:6px;}
 
   .perf-section-title{font-family:'Fraunces',serif;font-size:17px;font-weight:500;margin:0 0 12px;}
-  .perf-table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:26px;}
+  .perf-table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow-x:auto;margin-bottom:26px;}
   table.perf-table{width:100%;border-collapse:collapse;}
   .perf-table th,.perf-table td{padding:11px 16px;text-align:left;font-size:13px;border-bottom:1px solid var(--border);}
   .perf-table th{color:var(--text-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;background:var(--surface-2);font-weight:600;}
   .perf-table tbody tr:last-child td{border-bottom:none;}
   .perf-table td.num-cell{font-family:'IBM Plex Mono',monospace;font-size:12.5px;}
+  .perf-table th,.perf-table td{white-space:nowrap;}
+  .breach-num{color:var(--red);font-weight:700;}
+  .stat-card.breach .num{color:var(--red);}
   .rank-badge{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--surface-2);font-size:11px;font-weight:700;color:var(--text-dim);}
   .rank-badge.r1{background:var(--gold-soft);color:var(--gold);}
   .rank-badge.r2{background:#C0C0C022;color:#C6C6C6;}
@@ -870,18 +873,49 @@
     return `<span class="chg flat">flat</span>`;
   }
 
-  // ---- KAM performance: who escalated what, and how much of it got solved ----
+
+  // ---- Shared performance counters (same definitions in KAM Dashboard + OPS Console) ----
+  //  New          = status "Open" (nobody has picked it up yet)
+  //  In progress  = status "In Progress" or "Escalated" (someone is working it)
+  //  SLA breach   = NOT resolved AND the escalation ladder has already flagged it
+  //                 (Need attention / Critical / Very critical = response window missed)
+  //  Resolved     = status "Resolved"
+  const SLA_BREACH_STATES = ['Need attention', 'Critical', 'Very critical'];
+  function emptyCounts(){ return { total:0, fresh:0, progress:0, breach:0, solved:0 }; }
+  function tally(c, i){
+    c.total += 1;
+    if(i.status === 'Resolved'){ c.solved += 1; return; }
+    if(i.status === 'Open') c.fresh += 1; else c.progress += 1;
+    if(SLA_BREACH_STATES.includes(i.response_status)) c.breach += 1;
+  }
+  function resolveRate(c){ return c.total ? Math.round((c.solved / c.total) * 100) : 0; }
+  const COUNT_HEADS = '<th>Issues</th><th>New</th><th>In progress</th><th>SLA breach</th><th>Resolved</th>';
+  function countCells(c){
+    return `<td class="num-cell">${c.total}</td>
+        <td class="num-cell">${c.fresh}</td>
+        <td class="num-cell">${c.progress}</td>
+        <td class="num-cell ${c.breach ? 'breach-num' : ''}">${c.breach}</td>
+        <td class="num-cell">${c.solved}</td>`;
+  }
+  function countCards(c){
+    return `
+        <div class="stat-card"><div class="num">${c.total}</div><div class="lbl">Total issues</div></div>
+        <div class="stat-card"><div class="num">${c.fresh}</div><div class="lbl">New issues</div></div>
+        <div class="stat-card"><div class="num">${c.progress}</div><div class="lbl">In progress</div></div>
+        <div class="stat-card ${c.breach ? 'breach' : ''}"><div class="num">${c.breach}</div><div class="lbl">SLA breach</div></div>
+        <div class="stat-card"><div class="num">${c.solved}</div><div class="lbl">Resolved</div></div>
+        <div class="stat-card"><div class="num">${resolveRate(c)}%</div><div class="lbl">Resolve rate</div></div>`;
+  }
+
+  // ---- KAM performance: issue load, and where each issue currently stands ----
   function computeKamStats(issues){
     const by = {};
     issues.forEach(i=>{
       const name = i.logged_by_name || i.logged_by || 'Unknown';
-      if(!by[name]) by[name] = { name, total:0, solved:0 };
-      by[name].total += 1;
-      if(i.status === 'Resolved') by[name].solved += 1;
+      if(!by[name]) by[name] = { name, ...emptyCounts() };
+      tally(by[name], i);
     });
-    return Object.values(by).map(k=>({
-      ...k, open: k.total - k.solved, rate: k.total ? Math.round((k.solved/k.total)*100) : 0
-    })).sort((a,b)=> b.total - a.total);
+    return Object.values(by).map(k=>({ ...k, rate: resolveRate(k) })).sort((a,b)=> b.total - a.total);
   }
 
   function bucketByKam(issues, granularity, kamFilter){
@@ -892,9 +926,8 @@
       const d = new Date(i.ts);
       if(isNaN(d.getTime())) return;
       const { key, label, sortKey } = periodKeyLabel(d, granularity);
-      if(!buckets[key]) buckets[key] = { key, label, sortKey, escalated:0, solved:0 };
-      buckets[key].escalated += 1;
-      if(i.status === 'Resolved') buckets[key].solved += 1;
+      if(!buckets[key]) buckets[key] = { key, label, sortKey, ...emptyCounts() };
+      tally(buckets[key], i);
     });
     return Object.values(buckets).sort((a,b)=> b.sortKey - a.sortKey);
   }
@@ -906,18 +939,17 @@
     if(!shown.length) return `<div class="empty-state">Not enough dated issues yet for this report.</div>`;
     const rows = shown.map((b, idx) => {
       const prev = allBuckets[idx+1];
-      const rate = b.escalated ? Math.round((b.solved/b.escalated)*100) : 0;
+      const rate = resolveRate(b);
       return `<tr>
         <td>${escapeHtml(b.label)}</td>
-        <td class="num-cell">${b.escalated}</td>
-        <td class="num-cell">${b.solved}</td>
+        ${countCells(b)}
         <td><span class="rate-pill ${ratePillClass(rate)}">${rate}%</span></td>
-        <td>${prev ? chgHtml(b.escalated - prev.escalated) : '<span class="chg flat">—</span>'}</td>
+        <td>${prev ? chgHtml(b.total - prev.total) : '<span class="chg flat">—</span>'}</td>
       </tr>`;
     }).join('');
     return `<div class="perf-table-wrap">
       <table class="perf-table">
-        <thead><tr><th>Day</th><th>Escalated</th><th>Solved</th><th>Solve rate</th><th>Chg vs prior</th></tr></thead>
+        <thead><tr><th>Day</th>${COUNT_HEADS}<th>Resolve rate</th><th>Chg vs prior</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;
@@ -925,35 +957,26 @@
 
   function renderKamPerformance(issues){
     const kamStats = computeKamStats(issues);
-    const total = issues.length;
-    const totalSolved = kamStats.reduce((s,k)=>s+k.solved,0);
-    const kamCount = kamStats.length;
-    const overallRate = total ? Math.round((totalSolved/total)*100) : 0;
+    const totals = emptyCounts();
+    issues.forEach(i => tally(totals, i));
     const content = $('perfContent');
-    if(!kamCount){ content.innerHTML = `<div class="empty-state">No issues logged yet.</div>`; return; }
+    if(!kamStats.length){ content.innerHTML = `<div class="empty-state">No issues logged yet.</div>`; return; }
     if(activeKamFilter !== 'all' && !kamStats.find(k=>k.name===activeKamFilter)) activeKamFilter = 'all';
 
     content.innerHTML = `
-      <div class="stat-grid">
-        <div class="stat-card"><div class="num">${total}</div><div class="lbl">Total issues</div></div>
-        <div class="stat-card"><div class="num">${totalSolved}</div><div class="lbl">Solved</div></div>
-        <div class="stat-card"><div class="num">${total-totalSolved}</div><div class="lbl">Pending</div></div>
-        <div class="stat-card"><div class="num">${kamCount}</div><div class="lbl">KAMs reporting</div></div>
-        <div class="stat-card"><div class="num">${overallRate}%</div><div class="lbl">Overall solve rate</div></div>
+      <div class="stat-grid">${countCards(totals)}
       </div>
 
       <div class="perf-section-title">KAM Leaderboard (total)</div>
       <div class="perf-table-wrap">
         <table class="perf-table">
-          <thead><tr><th>#</th><th>KAM</th><th>Escalated</th><th>Solved</th><th>Pending</th><th>Solve rate</th></tr></thead>
+          <thead><tr><th>#</th><th>KAM</th>${COUNT_HEADS}<th>Resolve rate</th></tr></thead>
           <tbody>
             ${kamStats.map((k, idx) => `
               <tr>
                 <td><span class="rank-badge ${medalClass(idx)}">${idx+1}</span></td>
                 <td>${escapeHtml(k.name)}</td>
-                <td class="num-cell">${k.total}</td>
-                <td class="num-cell">${k.solved}</td>
-                <td class="num-cell">${k.open}</td>
+                ${countCells(k)}
                 <td><span class="rate-pill ${ratePillClass(k.rate)}">${k.rate}%</span></td>
               </tr>
             `).join('')}
@@ -990,22 +1013,18 @@
     });
   }
 
-  // ---- Hub performance: issue load, solve count, and how long resolution takes per hub ----
+  // ---- Hub performance: issue load, current status, and how long resolution takes per hub ----
   function computeHubPerfStats(issues){
     const by = {};
     issues.forEach(i=>{
       const hub = i.hub && i.hub !== '—' ? i.hub : 'Unassigned';
-      if(!by[hub]) by[hub] = { hub, total:0, solved:0, remarks:0, solveTimes:[] };
-      by[hub].total += 1;
-      if(i.remarks && String(i.remarks).trim()) by[hub].remarks += 1;
-      if(i.status === 'Resolved'){
-        by[hub].solved += 1;
-        if(i.updated_at){ const h = hoursBetween(i.ts, i.updated_at); if(h != null) by[hub].solveTimes.push(h); }
-      }
+      if(!by[hub]) by[hub] = { hub, ...emptyCounts(), remarks:0, solveTimes:[] };
+      const h = by[hub];
+      tally(h, i);
+      if(i.remarks && String(i.remarks).trim()) h.remarks += 1;
+      if(i.status === 'Resolved' && i.updated_at){ const t = hoursBetween(i.ts, i.updated_at); if(t != null) h.solveTimes.push(t); }
     });
-    return Object.values(by).map(h=>({
-      ...h, rate: h.total ? Math.round((h.solved/h.total)*100) : 0, avgSolveHours: avgOf(h.solveTimes)
-    })).sort((a,b)=> b.total - a.total);
+    return Object.values(by).map(h=>({ ...h, rate: resolveRate(h), avgSolveHours: avgOf(h.solveTimes) })).sort((a,b)=> b.total - a.total);
   }
 
   function bucketByHub(issues, granularity, hubFilter){
@@ -1016,13 +1035,11 @@
       const d = new Date(i.ts);
       if(isNaN(d.getTime())) return;
       const { key, label, sortKey } = periodKeyLabel(d, granularity);
-      if(!buckets[key]) buckets[key] = { key, label, sortKey, total:0, solved:0, remarks:0, solveTimes:[] };
-      buckets[key].total += 1;
-      if(i.remarks && String(i.remarks).trim()) buckets[key].remarks += 1;
-      if(i.status === 'Resolved'){
-        buckets[key].solved += 1;
-        if(i.updated_at){ const h = hoursBetween(i.ts, i.updated_at); if(h != null) buckets[key].solveTimes.push(h); }
-      }
+      if(!buckets[key]) buckets[key] = { key, label, sortKey, ...emptyCounts(), remarks:0, solveTimes:[] };
+      const b = buckets[key];
+      tally(b, i);
+      if(i.remarks && String(i.remarks).trim()) b.remarks += 1;
+      if(i.status === 'Resolved' && i.updated_at){ const t = hoursBetween(i.ts, i.updated_at); if(t != null) b.solveTimes.push(t); }
     });
     return Object.values(buckets).map(b=>({ ...b, avgSolveHours: avgOf(b.solveTimes) })).sort((a,b)=> b.sortKey - a.sortKey);
   }
@@ -1036,8 +1053,7 @@
       const prev = allBuckets[idx+1];
       return `<tr>
         <td>${escapeHtml(b.label)}</td>
-        <td class="num-cell">${b.total}</td>
-        <td class="num-cell">${b.solved}</td>
+        ${countCells(b)}
         <td class="num-cell">${fmtHours(b.avgSolveHours)}</td>
         <td class="num-cell">${b.remarks}</td>
         <td>${prev ? chgHtml(b.total - prev.total) : '<span class="chg flat">—</span>'}</td>
@@ -1045,7 +1061,7 @@
     }).join('');
     return `<div class="perf-table-wrap">
       <table class="perf-table">
-        <thead><tr><th>Day</th><th>Issues</th><th>Solved</th><th>Avg solve time</th><th>Remarks</th><th>Chg vs prior</th></tr></thead>
+        <thead><tr><th>Day</th>${COUNT_HEADS}<th>Avg solve time</th><th>Remarks</th><th>Chg vs prior</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;
@@ -1053,37 +1069,26 @@
 
   function renderHubPerformance(issues){
     const hubStats = computeHubPerfStats(issues);
-    const total = issues.length;
-    const totalSolved = hubStats.reduce((s,h)=>s+h.solved,0);
-    const totalRemarks = hubStats.reduce((s,h)=>s+h.remarks,0);
-    const hubCount = hubStats.length;
-    const overallRate = total ? Math.round((totalSolved/total)*100) : 0;
-    const overallAvgSolve = avgOf(hubStats.flatMap(h=>h.solveTimes));
+    const totals = emptyCounts();
+    issues.forEach(i => tally(totals, i));
     const content = $('perfContent');
-    if(!hubCount){ content.innerHTML = `<div class="empty-state">No issues logged yet.</div>`; return; }
+    if(!hubStats.length){ content.innerHTML = `<div class="empty-state">No issues logged yet.</div>`; return; }
     if(activeHubFilter !== 'all' && !hubStats.find(h=>h.hub===activeHubFilter)) activeHubFilter = 'all';
 
     content.innerHTML = `
-      <div class="stat-grid">
-        <div class="stat-card"><div class="num">${total}</div><div class="lbl">Total issues</div></div>
-        <div class="stat-card"><div class="num">${totalSolved}</div><div class="lbl">Solved</div></div>
-        <div class="stat-card"><div class="num">${hubCount}</div><div class="lbl">Hubs reporting</div></div>
-        <div class="stat-card"><div class="num">${fmtHours(overallAvgSolve)}</div><div class="lbl">Avg solve time</div></div>
-        <div class="stat-card"><div class="num">${totalRemarks}</div><div class="lbl">Remarks logged</div></div>
-        <div class="stat-card"><div class="num">${overallRate}%</div><div class="lbl">Overall solve rate</div></div>
+      <div class="stat-grid">${countCards(totals)}
       </div>
 
       <div class="perf-section-title">Hub Leaderboard (total)</div>
       <div class="perf-table-wrap">
         <table class="perf-table">
-          <thead><tr><th>#</th><th>Hub</th><th>Issues</th><th>Solved</th><th>Avg solve time</th><th>Remarks</th><th>Solve rate</th></tr></thead>
+          <thead><tr><th>#</th><th>Hub</th>${COUNT_HEADS}<th>Avg solve time</th><th>Remarks</th><th>Resolve rate</th></tr></thead>
           <tbody>
             ${hubStats.map((h, idx) => `
               <tr>
                 <td><span class="rank-badge ${medalClass(idx)}">${idx+1}</span></td>
                 <td>${escapeHtml(h.hub)}</td>
-                <td class="num-cell">${h.total}</td>
-                <td class="num-cell">${h.solved}</td>
+                ${countCells(h)}
                 <td class="num-cell">${fmtHours(h.avgSolveHours)}</td>
                 <td class="num-cell">${h.remarks}</td>
                 <td><span class="rate-pill ${ratePillClass(h.rate)}">${h.rate}%</span></td>
