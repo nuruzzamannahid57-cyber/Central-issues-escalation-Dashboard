@@ -335,6 +335,7 @@
 
   <div class="tab-bar" id="mainTabs">
     <button class="tab-btn active" data-tab="issues" id="tabBtnIssues">Issues</button>
+    <button class="tab-btn" data-tab="pjissues" id="tabBtnPJIssues">Parcel Journey Issue</button>
     <button class="tab-btn" data-tab="flagged" id="tabBtnFlagged">Flagged</button>
     <button class="tab-btn" data-tab="performance" id="tabBtnPerformance">Performance</button>
   </div>
@@ -362,7 +363,7 @@
   </div>
 
   <div class="panel">
-    <h2>Escalation log</h2>
+    <h2 id="issueLogTitle">Escalation log</h2>
     <div class="table-scroll">
       <table>
         <thead>
@@ -769,8 +770,17 @@
     });
   }
 
+  // The Issues tab and the Parcel Journey Issue tab share one panel; each
+  // shows only its own issues (source = 'parcel_journey' is set by the
+  // Parcel Journey tab of the form).
+  let issueView = 'issues';
+  const isParcelJourneyIssue = (i) => i.source === 'parcel_journey';
+  function issuesForView(){
+    return applyFilters(allIssues).filter(i => isParcelJourneyIssue(i) === (issueView === 'pjissues'));
+  }
+
   function renderDashboard(){
-    const filtered = applyFilters(allIssues);
+    const filtered = issuesForView();
     renderStats(filtered);
     renderBars(filtered);
     renderTable(filtered, 'issueTableBody', 'emptyState');
@@ -835,7 +845,7 @@
   $('btnRefresh').addEventListener('click', loadAndRenderDashboard);
 
   $('btnExport').addEventListener('click', ()=>{
-    const filtered = applyFilters(allIssues);
+    const filtered = issuesForView();
     const headers = ['Logged','Consignment/Merchant','Channel','Zone','Hub','Category','Subcategory','Issue Status','Logged By','Remarks','Details'];
     const rows = filtered.map(i=>[
       fmtTime(i.ts), i.consignment, i.channel, i.zone, i.hub, i.category, i.subcategory, i.status, (i.logged_by_name || i.logged_by), (i.remarks || ''), i.details
@@ -846,7 +856,7 @@
     const blob = new Blob([csv], {type:'text/csv'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = 'escalation-issues.csv';
+    a.href = url; a.download = issueView === 'pjissues' ? 'parcel-journey-issues.csv' : 'escalation-issues.csv';
     a.click();
     URL.revokeObjectURL(url);
   });
@@ -858,16 +868,24 @@
   let activeHubFilter = 'all';
 
   function switchMainTab(tab){
+    const issuePanel = tab === 'issues' || tab === 'pjissues';
+    if(issuePanel && tab !== issueView){
+      issueView = tab;
+      $('issueLogTitle').textContent = tab === 'pjissues' ? 'Parcel Journey issue log' : 'Escalation log';
+      renderDashboard();
+    }
     $('tabBtnIssues').classList.toggle('active', tab === 'issues');
+    $('tabBtnPJIssues').classList.toggle('active', tab === 'pjissues');
     $('tabBtnFlagged').classList.toggle('active', tab === 'flagged');
     $('tabBtnPerformance').classList.toggle('active', tab === 'performance');
-    $('panel-issues').style.display = tab === 'issues' ? 'block' : 'none';
+    $('panel-issues').style.display = issuePanel ? 'block' : 'none';
     $('panel-flagged').style.display = tab === 'flagged' ? 'block' : 'none';
     $('panel-performance').style.display = tab === 'performance' ? 'block' : 'none';
     if(tab === 'flagged') renderFlagged();
     if(tab === 'performance') renderPerformance(activePerfView);
   }
   $('tabBtnIssues').addEventListener('click', ()=> switchMainTab('issues'));
+  $('tabBtnPJIssues').addEventListener('click', ()=> switchMainTab('pjissues'));
   $('tabBtnFlagged').addEventListener('click', ()=> switchMainTab('flagged'));
   $('tabBtnPerformance').addEventListener('click', ()=> switchMainTab('performance'));
   document.querySelectorAll('#perfSubTabs .tab-btn').forEach(btn=>{
