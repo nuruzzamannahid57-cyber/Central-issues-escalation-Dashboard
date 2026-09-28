@@ -1,0 +1,116 @@
+<!-- Issue Detail Modal -->
+<div id="issueDetailOverlay" class="modal-overlay" style="display:none;">
+  <div class="modal-box issue-detail-modal">
+    <div class="modal-header">
+      <h3>Issue Details</h3>
+      <button class="modal-close-x" id="issueDetailClose">✕</button>
+    </div>
+
+    <div class="detail-tabs">
+      <button class="detail-tab active" data-tab="details">Details</button>
+      <button class="detail-tab" data-tab="actions">Actions</button>
+    </div>
+
+    <div id="detail-panel-details" class="detail-panel active">
+      <div class="detail-section">
+        <div class="detail-label">Issue ID</div>
+        <div class="detail-value" id="detail-id"></div>
+      </div>
+      <div class="detail-section">
+        <div class="detail-label">Logged</div>
+        <div class="detail-value" id="detail-ts"></div>
+      </div>
+      <div class="detail-section">
+        <div class="detail-label">Consignment / Merchant</div>
+        <div class="detail-value" id="detail-consignment"></div>
+      </div>
+      <div class="detail-grid">
+        <div class="detail-section">
+          <div class="detail-label">Channel</div>
+          <div class="detail-value" id="detail-channel"></div>
+        </div>
+        <div class="detail-section">
+          <div class="detail-label">Zone</div>
+          <div class="detail-value" id="detail-zone"></div>
+        </div>
+      </div>
+      <div class="detail-section">
+        <div class="detail-label">Hub</div>
+        <div class="detail-value" id="detail-hub"></div>
+      </div>
+      <div class="detail-grid">
+        <div class="detail-section">
+          <div class="detail-label">Category</div>
+          <div class="detail-value" id="detail-category"></div>
+        </div>
+        <div class="detail-section">
+          <div class="detail-label">Subcategory</div>
+          <div class="detail-value" id="detail-subcategory"></div>
+        </div>
+      </div>
+      <div class="detail-grid">
+        <div class="detail-section">
+          <div class="detail-label">Status</div>
+          <div class="detail-value" id="detail-status"></div>
+        </div>
+        <div class="detail-section">
+          <div class="detail-label">Flag</div>
+          <div class="detail-value" id="detail-flag"></div>
+        </div>
+      </div>
+      <div class="detail-section">
+        <div class="detail-label">Logged by</div>
+        <div class="detail-value" id="detail-logged-by"></div>
+      </div>
+      <div class="detail-section">
+        <div class="detail-label">Issue Details</div>
+        <div class="detail-value detail-text" id="detail-details"></div>
+      </div>
+      <div class="detail-section">
+        <div class="detail-label">Remarks</div>
+        <div class="detail-value detail-text" id="detail-remarks"></div>
+      </div>
+      <div class="detail-section" id="detail-attachments-section" style="display:none;">
+        <div class="detail-label">Attachments</div>
+        <div class="detail-value" id="detail-attachments"></div>
+      </div>
+      <div class="detail-section" id="detail-history-section" style="display:none;">
+        <div class="detail-label">History</div>
+        <div class="detail-value" id="detail-history"></div>
+      </div>
+    </div>
+
+    <div id="detail-panel-actions" class="detail-panel" style="display:none;">
+      <div class="action-buttons">
+        <button class="action-btn close-btn" id="detailActionClose">
+          <span class="action-icon">✓</span>
+          <div>
+            <div class="action-title">Close Issue</div>
+            <div class="action-desc">Mark this issue as resolved</div>
+          </div>
+        </button>
+        <button class="action-btn reprocess-btn" id="detailActionReprocess">
+          <span class="action-icon">↻</span>
+          <div>
+            <div class="action-title">Re-process</div>
+            <div class="action-desc">Re-escalate to hub for review</div>
+          </div>
+        </button>
+      </div>
+      <div id="actionStatusMsg" class="status-msg" style="margin-top:16px;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Re-process Confirmation Modal -->
+<div id="reprocessModalOverlay" class="modal-overlay" style="display:none;">
+  <div class="modal-box">
+    <h3>Re-process this issue?</h3>
+    <p>This will re-escalate the issue to the hub and reset its status to "Open".</p>
+    <div class="modal-actions">
+      <button class="ghost" id="reprocessModalCancel">Cancel</button>
+      <button class="primary" id="reprocessModalConfirm">Re-process</button>
+    </div>
+    <div style="margin-top:10px;"><span class="status-msg" id="reprocessModalMsg"></span></div>
+  </div>
+</div>
