@@ -146,6 +146,7 @@
   .tab-bar.sub .tab-btn.active{background:var(--accent-soft);color:var(--accent);border-color:var(--accent);}
 
   .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:24px;}
+  #flaggedKpis{grid-template-columns:repeat(3,minmax(0,1fr));}
   .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;}
   .stat-card .num{font-family:'Inter',sans-serif;font-size:25px;font-weight:500;line-height:1.1;}
   .stat-card .lbl{font-size:10.5px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.04em;margin-top:6px;}
@@ -489,6 +490,7 @@
   </div>
 
   <div id="panel-flagged" style="display:none;">
+    <div class="stat-grid" id="flaggedKpis"></div>
     <div class="panel">
       <h2>Flagged issues</h2>
       <div class="table-scroll">
@@ -904,6 +906,20 @@
 
   // ---------- Flagged tab ----------
   const SEVERITY_RANK = { 'Very critical': 3, 'Critical': 2, 'Need attention': 1 };
+  // L1 / L2 / L3 KPI cards: how many still-open issues sit at each escalation
+  // level right now (L3 = Hub, L2 = Cluster / Regional, L1 = Ops Manager).
+  function renderFlaggedKpis(){
+    const open = allIssues.filter(i => i.status !== 'Resolved' && !i.closed_by);
+    const n = lvl => open.filter(i => (i.escalation_level || 'L3') === lvl).length;
+    const cards = [
+      ['L1', 'Ops Manager', n('L1'), 'var(--red)'],
+      ['L2', 'Cluster / Regional', n('L2'), 'var(--gold)'],
+      ['L3', 'Hub', n('L3'), 'var(--text)']
+    ];
+    $('flaggedKpis').innerHTML = cards.map(c =>
+      `<div class="stat-card"><div class="num" style="color:${c[3]};">${c[2]}</div><div class="lbl">${c[0]} · ${c[1]}</div></div>`
+    ).join('');
+  }
   function renderFlagged(){
     const flagged = allIssues
       .filter(i => SEVERITY_RANK[i.response_status])
@@ -912,6 +928,7 @@
         if(rankDiff) return rankDiff;
         return new Date(a.level_started_at || a.ts) - new Date(b.level_started_at || b.ts);
       });
+    renderFlaggedKpis();
     renderTable(flagged, 'flaggedTableBody', 'flaggedEmptyState');
   }
 
