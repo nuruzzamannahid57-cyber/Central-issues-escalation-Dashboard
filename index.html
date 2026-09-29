@@ -257,6 +257,10 @@
   .modal-box button.link{background:none;border:none;color:var(--accent);font-family:'Inter',sans-serif;font-weight:600;font-size:12.5px;cursor:pointer;padding:0;}
   .modal-box textarea{width:100%;min-height:96px;resize:vertical;background:var(--surface-2);border:1px solid var(--border);color:var(--text);padding:11px 12px;border-radius:8px;font-family:'Inter',sans-serif;font-size:14px;line-height:1.5;outline:none;}
   .modal-box textarea:focus{border-color:var(--accent);}
+  .modal-box input.ir-input{width:100%;box-sizing:border-box;background:var(--surface-2);border:1px solid var(--border);color:var(--text);padding:11px 12px;border-radius:8px;font-family:'Inter',sans-serif;font-size:14px;outline:none;margin-bottom:10px;}
+  .modal-box input.ir-input:focus{border-color:var(--accent);}
+  .ir-meta{font-size:13px;color:var(--text-dim);margin:0 0 8px;}
+  .ir-meta b{color:var(--text);}
   tbody tr.clickable{cursor:pointer;}
   .dt-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:14px;}
   .dt-head h3{margin:0 0 6px;}
@@ -399,8 +403,10 @@
         <h3>Send to IR team</h3>
         <button class="dt-x" id="irX" type="button" aria-label="Close">✕</button>
       </div>
-      <p>This emails <b>issue.resolution@carrybee.com</b> from your account (<b id="irFrom"></b>). Issue: <b id="irRef"></b></p>
-      <textarea id="irDetails" maxlength="3000" placeholder="Write the details for the IR team"></textarea>
+      <div class="ir-meta">From: <b id="irFrom"></b></div>
+      <div class="ir-meta">To: <b>issue.resolution@carrybee.com</b></div>
+      <input class="ir-input" id="irSubject" type="text" maxlength="200" placeholder="Subject">
+      <textarea id="irDetails" maxlength="3000" style="min-height:160px;" placeholder="Write your message to the IR team"></textarea>
       <div class="modal-actions" style="margin-top:14px;">
         <button class="ghost" id="irBack" type="button">Back</button>
         <button class="primary" id="irSend" type="button">Send</button>
@@ -1022,23 +1028,25 @@
     const i = findIssue(actionId); if(!i) return;
     closeActionModal();
     $('irFrom').textContent = authEmail || '';
-    $('irRef').textContent = i.consignment || i.id;
+    $('irSubject').value = `[IR] ${i.consignment || i.id}${i.hub ? ' · ' + i.hub : ''}`;
     $('irDetails').value = ''; $('irMsg').textContent = '';
     $('irOverlay').style.display = 'flex';
-    $('irDetails').focus();
+    $('irSubject').focus();
   });
   function closeIR(){ $('irOverlay').style.display = 'none'; }
   $('irX').addEventListener('click', ()=>{ closeIR(); actionId = null; });
   $('irBack').addEventListener('click', ()=>{ closeIR(); openActionModal(actionId); });
   $('irOverlay').addEventListener('click', (e)=>{ if(e.target.id === 'irOverlay'){ closeIR(); actionId = null; } });
   $('irSend').addEventListener('click', async ()=>{
+    const subject = $('irSubject').value.trim();
     const details = $('irDetails').value.trim();
     const msg = $('irMsg');
-    if(details.length < 3){ msg.textContent = 'Write the details to send.'; msg.className = 'status-msg err'; return; }
+    if(!subject){ msg.textContent = 'Write a subject.'; msg.className = 'status-msg err'; return; }
+    if(details.length < 3){ msg.textContent = 'Write the message body.'; msg.className = 'status-msg err'; return; }
     msg.textContent = 'Sending…'; msg.className = 'status-msg';
     $('irSend').disabled = true;
     try{
-      const res = await authedFetch(`/api/issues/${encodeURIComponent(actionId)}/send-to-ir`, { method:'POST', body: JSON.stringify({ details }) });
+      const res = await authedFetch(`/api/issues/${encodeURIComponent(actionId)}/send-to-ir`, { method:'POST', body: JSON.stringify({ subject, details }) });
       const data = await res.json();
       if(!res.ok){ msg.textContent = data.error || 'Could not send.'; msg.className = 'status-msg err'; return; }
       msg.textContent = 'Sent to the IR team.'; msg.className = 'status-msg ok';
