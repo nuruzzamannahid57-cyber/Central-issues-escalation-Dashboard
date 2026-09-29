@@ -128,6 +128,7 @@
   }
   .status-msg{font-size:13.5px;font-weight:600;}
   .status-msg.err{color:var(--red);}
+  .status-msg.ok{color:var(--green);}
   #view-dashboard{display:none;}
   .session-row{display:flex;justify-content:flex-end;align-items:center;gap:12px;margin-bottom:16px;font-size:12.5px;color:var(--text-faint);}
   .session-row button.link{background:none;border:none;color:var(--accent);font-family:'Inter',sans-serif;font-weight:600;font-size:12.5px;cursor:pointer;padding:0;}
@@ -280,6 +281,7 @@
   .tl-item.t-ops_update::before{background:#5B9BD5;}
   .tl-item.t-resolved::before,.tl-item.t-closed::before{background:var(--green);}
   .tl-item.t-reprocessed::before{background:var(--red);}
+  .tl-item.t-sent_to_ir::before{background:var(--gold);}
   .tl-title{font-size:13.5px;font-weight:600;color:var(--text);}
   .tl-when{font-size:11.5px;color:var(--text-faint);font-family:'IBM Plex Mono',monospace;margin-top:1px;}
   .tl-body{font-size:13px;color:var(--text-dim);margin-top:4px;white-space:pre-wrap;word-break:break-word;}
@@ -290,6 +292,7 @@
   .act-choice b{display:block;font-size:14px;margin-bottom:3px;}
   .act-choice span{font-size:12.5px;color:var(--text-dim);}
   .act-choice.reprocess b{color:var(--accent);}
+  .act-choice.ir b{color:var(--gold);}
 
   .lightbox-overlay{
     position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:110;
@@ -372,6 +375,7 @@
       <p id="actionSub">Pick one for this issue.</p>
       <button class="act-choice" id="actionClose" type="button"><b>Close issue</b><span>The hub's answer solved it. You will confirm the merchant was informed.</span></button>
       <button class="act-choice reprocess" id="actionReprocess" type="button"><b>Re-process</b><span>Not solved. It goes back to the hub as a new Open issue and the escalation clock starts again.</span></button>
+      <button class="act-choice ir" id="actionIR" type="button"><b>Send to IR</b><span>Email the Issue Resolution team with your details. They can reply to you directly.</span></button>
       <button class="link" id="actionCancel" type="button" style="margin-top:4px;">Cancel</button>
     </div>
   </div>
@@ -386,6 +390,19 @@
         <button class="primary" id="rpConfirm" type="button">Send back to hub</button>
       </div>
       <div style="margin-top:10px;"><span class="status-msg" id="rpMsg"></span></div>
+    </div>
+  </div>
+
+  <div id="irOverlay" class="modal-overlay" style="display:none;">
+    <div class="modal-box">
+      <h3>Send to IR team</h3>
+      <p>This emails <b>issue.resolution@carrybee.com</b> from your account (<b id="irFrom"></b>). Issue: <b id="irRef"></b></p>
+      <textarea id="irDetails" maxlength="3000" placeholder="Write the details for the IR team"></textarea>
+      <div class="modal-actions" style="margin-top:14px;">
+        <button class="ghost" id="irBack" type="button">Back</button>
+        <button class="primary" id="irSend" type="button">Send</button>
+      </div>
+      <div style="margin-top:10px;"><span class="status-msg" id="irMsg"></span></div>
     </div>
   </div>
 
@@ -924,6 +941,9 @@
     }else if(e.type === 'closed'){
       title = `Closed by ${who}`;
       body = d.merchantInformed ? `Merchant informed: ${escapeHtml(d.merchantInformed)}` : '';
+    }else if(e.type === 'sent_to_ir'){
+      title = `Sent to IR team by ${who}`;
+      body = escapeHtml(d.note || '');
     }else if(e.type === 'reprocessed'){
       title = `Re-processed by ${who}. Sent back to ${escapeHtml(d.hub || 'the hub')}`;
       body = escapeHtml('Reason: ' + (d.reason || '—')) + (d.previousRemarks ? '\n' + escapeHtml('Hub had said: ' + d.previousRemarks) : '');
@@ -994,6 +1014,37 @@
     $('reprocessOverlay').style.display = 'flex';
     $('rpReason').focus();
   });
+  // Send to IR: write details, emailed to the IR team by the backend
+  $('actionIR').addEventListener('click', ()=>{
+    const i = findIssue(actionId); if(!i) return;
+    closeActionModal();
+    $('irFrom').textContent = authEmail || '';
+    $('irRef').textContent = i.consignment || i.id;
+    $('irDetails').value = ''; $('irMsg').textContent = '';
+    $('irOverlay').style.display = 'flex';
+    $('irDetails').focus();
+  });
+  function closeIR(){ $('irOverlay').style.display = 'none'; }
+  $('irBack').addEventListener('click', ()=>{ closeIR(); openActionModal(actionId); });
+  $('irOverlay').addEventListener('click', (e)=>{ if(e.target.id === 'irOverlay'){ closeIR(); actionId = null; } });
+  $('irSend').addEventListener('click', async ()=>{
+    const details = $('irDetails').value.trim();
+    const msg = $('irMsg');
+    if(details.length < 3){ msg.textContent = 'Write the details to send.'; msg.className = 'status-msg err'; return; }
+    msg.textContent = 'Sending…'; msg.className = 'status-msg';
+    $('irSend').disabled = true;
+    try{
+      const res = await authedFetch(`/api/issues/${encodeURIComponent(actionId)}/send-to-ir`, { method:'POST', body: JSON.stringify({ details }) });
+      const data = await res.json();
+      if(!res.ok){ msg.textContent = data.error || 'Could not send.'; msg.className = 'status-msg err'; return; }
+      msg.textContent = 'Sent to the IR team.'; msg.className = 'status-msg ok';
+      setTimeout(()=>{ closeIR(); closeDetail(); actionId = null; }, 900);
+    }catch(err){
+      msg.textContent = 'Could not reach the server.'; msg.className = 'status-msg err';
+    }finally{
+      $('irSend').disabled = false;
+    }
+  });
   function closeReprocess(){ $('reprocessOverlay').style.display = 'none'; }
   $('rpBack').addEventListener('click', ()=>{ closeReprocess(); openActionModal(actionId); });
   $('reprocessOverlay').addEventListener('click', (e)=>{ if(e.target.id === 'reprocessOverlay'){ closeReprocess(); actionId = null; } });
@@ -1017,7 +1068,7 @@
   });
   document.addEventListener('keydown', (e)=>{
     if(e.key !== 'Escape') return;
-    for(const id of ['reprocessOverlay','actionOverlay','closeModalOverlay','detailOverlay']){
+    for(const id of ['irOverlay','reprocessOverlay','actionOverlay','closeModalOverlay','detailOverlay']){
       const el = $(id);
       if(el && el.style.display !== 'none'){
         if(id === 'closeModalOverlay') closeModalHide(); else el.style.display = 'none';
